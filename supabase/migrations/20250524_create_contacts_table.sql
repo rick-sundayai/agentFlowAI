@@ -5,7 +5,10 @@ CREATE TABLE IF NOT EXISTS public.contacts (
   name TEXT NOT NULL,
   email TEXT,
   phone TEXT,
+  address TEXT,
   property_address TEXT,
+  company TEXT,
+  source TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

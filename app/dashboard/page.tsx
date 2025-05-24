@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server'; // Use the server client
 import { redirect } from 'next/navigation';
 import SignOutButton from './signout-button'; // Client Component for sign out
 import AddContactButton from './add-contact-button'; // Client Component for adding contacts
+import CsvUploadForm from '../components/csvUploadForm'; // CSV import functionality
 
 // Define the type for contact data
 interface Contact {
@@ -140,6 +141,9 @@ export default async function Dashboard() {
               </div>
             )}
           </div>
+          
+          {/* CSV Import Section */}
+          <CsvUploadForm />
         </div>
       </main>
       
