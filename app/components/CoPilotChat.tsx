@@ -8,113 +8,117 @@ interface ChatMessage {
   id: number;
   text: string;
   sender: 'user' | 'ai'; // 'user' for the agent, 'ai' for the Co-Pilot
+  // Add properties for structured data display
+  dataType?: 'contacts_list';
+  data?: any; // Data payload for structured types (e.g., contacts array)
 }
 
+// Define a type for contact data received in the response
+interface ContactData {
+    id: string;
+    name: string;
+    phone: string | null;
+    email: string | null;
+    property_address: string | null;
+    // Add other fields as needed
+}
+
+
 export default function CoPilotChat() {
-  // State to hold the list of messages
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  // State for the current input text
   const [inputText, setInputText] = useState('');
-  // State to indicate if the AI is processing (optional for basic UI)
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Ref for the chat messages container to auto-scroll
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Effect to scroll to the bottom when new messages arrive
+   // Add an initial greeting message when the component mounts
+  useEffect(() => {
+      // Only add the initial message once
+      if (messages.length === 0) {
+         setMessages([{
+             id: Date.now(),
+             text: "Hello! I'm your AgentFlow AI Co-Pilot. How can I assist you today?",
+             sender: 'ai'
+         }]);
+      }
+  }, []); // Empty dependency array
+
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]); // Dependency array: re-run when 'messages' state changes
+  }, [messages]);
 
-  // Function to handle sending a message (when the user hits Enter or clicks Send)
   const handleSendMessage = async () => {
-    if (inputText.trim() === '') return; // Don't send empty messages
+    if (inputText.trim() === '') return;
 
+    const userMessageText = inputText; // Store before clearing
     const newUserMessage: ChatMessage = {
-      id: Date.now(), // Simple unique ID for now
-      text: inputText,
+      id: Date.now(),
+      text: userMessageText,
       sender: 'user',
     };
 
-    // Add the user's message to the chat immediately
     setMessages((prevMessages) => [...prevMessages, newUserMessage]);
-    setInputText(''); // Clear the input field
+    setInputText('');
+    setIsProcessing(true);
 
-    setIsProcessing(true); // Indicate processing starts
-
-    // --- Future Integration Point ---
-    // This is where you will send the newUserMessage.text to your backend API route
-    // that will interact with the LLM and trigger actions.
-    console.log("Sending message to backend (simulated):", newUserMessage.text);
-
-    // Simulate an AI response for UI testing
-    setTimeout(() => {
-        const aiResponseText = `Acknowledged: "${newUserMessage.text}". I'm not fully integrated yet, but I received your message!`;
-        const newAiMessage: ChatMessage = {
-            id: Date.now() + 1, // Ensure unique ID
-            text: aiResponseText,
-            sender: 'ai',
-        };
-         setMessages((prevMessages) => [...prevMessages, newAiMessage]);
-         setIsProcessing(false); // Processing ends
-    }, 1000); // Simulate network delay
-
-    // In the real implementation, you'll replace the above setTimeout with:
-    /*
+    // --- Call your new backend API route ---
     try {
-        const response = await fetch('/api/copilot-command', { // Your future API route
+        const response = await fetch('/api/copilot-command', { // Your new API route
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: newUserMessage.text, userId: '...' }), // Send command and user ID
+            body: JSON.stringify({ command: userMessageText }), // Send the user's text command
         });
 
         if (!response.ok) {
-            throw new Error('Failed to get AI response');
+            // Attempt to read error message from backend response
+            const errorBody = await response.json();
+            const errorMessageText = errorBody.error || 'Failed to process command.';
+            throw new Error(`Backend error: ${response.status} - ${errorMessageText}`);
         }
 
-        const data = await response.json(); // Assuming backend sends back a response object
-        const aiResponseText = data.response || 'Could not process command.'; // Or process structured data from backend
+        const result = await response.json(); // Assuming backend sends back { response: { type: '...', text: '...', data: ... } }
+        const aiResponseContent = result.response;
 
+        // Determine the type of message to display based on the backend response
         const newAiMessage: ChatMessage = {
-            id: Date.now() + 1,
-            text: aiResponseText,
-            sender: 'ai',
+             id: Date.now() + 1,
+             text: aiResponseContent.text || '', // Always include text, even if there's structured data
+             sender: 'ai',
+             dataType: aiResponseContent.type, // Store the data type
+             data: aiResponseContent.data, // Store any associated data (like contacts array)
         };
+
         setMessages((prevMessages) => [...prevMessages, newAiMessage]);
 
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error sending message to AI backend:", error);
         const errorMessage: ChatMessage = {
              id: Date.now() + 1,
-             text: "Sorry, I encountered an error processing your request.",
+             text: `Sorry, I encountered an error processing your request: ${error.message}`,
              sender: 'ai',
         };
         setMessages((prevMessages) => [...prevMessages, errorMessage]);
     } finally {
-        setIsProcessing(false); // Processing ends
+        setIsProcessing(false);
     }
-    */
   };
 
-  // Handle key press (like 'Enter')
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault(); // Prevent default form submission or new line
+    if (event.key === 'Enter' && !isProcessing) { // Prevent sending multiple times while processing
+      event.preventDefault();
       handleSendMessage();
     }
   };
 
   return (
-    <div className="bg-gray-100 p-6 rounded-lg shadow-md flex flex-col h-[400px]"> {/* Fixed height for chat area */}
-      <h3 className="text-xl font-semibold text-gray-800 mb-4">Your Co-Pilot</h3>
+    <div className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg shadow-inner flex flex-col h-[450px] border border-gray-200 dark:border-gray-600"> {/* Adjusted styling */}
+      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+         <span className="text-indigo-600 dark:text-indigo-400 mr-2">AI</span> Co-Pilot
+      </h3>
 
       {/* Chat Messages Display Area */}
-      <div className="flex-grow overflow-y-auto space-y-4 p-2">
-        {messages.length === 0 && (
-          <p className="text-gray-500 italic text-center">
-            Type a command to get started, e.g., "Show my contacts."
-          </p>
-        )}
+      <div className="flex-grow overflow-y-auto space-y-4 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm"> {/* Added background */}
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -123,38 +127,58 @@ export default function CoPilotChat() {
             <div
               className={`max-w-[80%] rounded-lg p-3 ${
                 msg.sender === 'user'
-                  ? 'bg-indigo-500 text-white' // User bubble style
-                  : 'bg-gray-200 text-gray-800' // AI bubble style
+                  ? 'bg-indigo-500 text-white'
+                  : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
               }`}
             >
-              {msg.text}
+              {/* Render different content based on message type */}
+              {msg.text} {/* Display the text part */}
+
+              {/* Render structured data below the text */}
+              {msg.dataType === 'contacts_list' && msg.data && (
+                 <div className="mt-2 border-t border-gray-300 dark:border-gray-500 pt-2">
+                     {msg.data.length > 0 ? (
+                         <ul className="text-sm space-y-1">
+                             {msg.data.map((contact: ContactData) => (
+                                 <li key={contact.id} className="truncate"> {/* Use ContactData type */}
+                                     <strong>{contact.name}:</strong> {contact.email || contact.phone || 'No contact info'}
+                                 </li>
+                             ))}
+                         </ul>
+                     ) : (
+                         <p className="italic">No contacts found.</p>
+                     )}
+                 </div>
+              )}
+               {/* Add rendering logic for other data types here in the future */}
+
             </div>
           </div>
         ))}
-        <div ref={messagesEndRef} /> {/* Empty div to scroll to */}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Message Input Area */}
       <div className="mt-4 flex">
         <input
           type="text"
-          placeholder={isProcessing ? "Processing..." : "Type your command..."}
+          placeholder={isProcessing ? "Co-Pilot is thinking..." : "Type your command..."}
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyPress={handleKeyPress}
-          disabled={isProcessing} // Disable input while processing
-          className="flex-grow rounded-l-md border-0 py-2 px-4 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 disabled:opacity-50"
+          disabled={isProcessing}
+          className="flex-grow rounded-l-md border-0 py-2 px-4 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 disabled:opacity-50 dark:bg-gray-600 dark:text-white dark:placeholder-gray-400 dark:ring-gray-500 dark:focus:ring-indigo-500"
         />
         <button
           onClick={handleSendMessage}
-          disabled={!inputText.trim() || isProcessing} // Disable if input is empty or processing
+          disabled={!inputText.trim() || isProcessing}
           className="inline-flex items-center justify-center rounded-r-md border border-transparent px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Send
         </button>
       </div>
        {isProcessing && (
-            <p className="text-sm text-gray-600 italic mt-2 text-center">Co-Pilot is thinking...</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 italic mt-2 text-center">Working on it...</p>
         )}
     </div>
   );
