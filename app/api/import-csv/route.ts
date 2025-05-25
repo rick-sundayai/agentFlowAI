@@ -1,68 +1,110 @@
+// app/api/import-csv/route.ts
 import { createClient } from '@/utils/supabase/server';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
+  // 1. Securely identify the logged-in user
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // If no user is logged in, return an unauthorized response
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const userId = user.id; // Get the authenticated user's ID
+
   try {
-    // Get the current user
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      return NextResponse.json(
-        { error: 'You must be logged in to import contacts' },
-        { status: 401 }
-      );
-    }
-
-    // Parse the multipart form data
+    // 2. Receive and parse the file data from the request
     const formData = await request.formData();
-    const csvFile = formData.get('csvFile') as File;
+    const file = formData.get('csvFile') as File | null;
 
-    if (!csvFile) {
-      return NextResponse.json(
-        { error: 'No CSV file provided' },
-        { status: 400 }
-      );
+    if (!file) {
+      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
     // Check file type
-    if (!csvFile.name.endsWith('.csv')) {
+    if (!file.name.endsWith('.csv') && !file.name.endsWith('.txt')) {
       return NextResponse.json(
-        { error: 'File must be a CSV' },
+        { error: 'File must be a CSV or TXT file' },
         { status: 400 }
       );
     }
 
     // Read the file content
-    const text = await csvFile.text();
-    const lines = text.split('\n');
+    const csvContent = await file.text();
+    
+    // First try to send to n8n webhook
+    const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
+    const N8N_WEBHOOK_API_KEY = process.env.N8N_WEBHOOK_API_KEY;
+
+    if (N8N_WEBHOOK_URL && N8N_WEBHOOK_API_KEY) {
+      try {
+        // Construct the payload to send to n8n
+        const n8nPayload = {
+          userId: userId,
+          csvContent: csvContent,
+          fileName: file.name,
+        };
+
+        // Send the payload to the n8n webhook
+        const n8nResponse = await fetch(N8N_WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Api-Key': N8N_WEBHOOK_API_KEY,
+          },
+          body: JSON.stringify(n8nPayload),
+        });
+
+        if (n8nResponse.ok) {
+          // n8n webhook processed successfully
+          return NextResponse.json({
+            message: 'CSV file received and sent for processing. Your contacts will appear shortly.',
+            source: 'n8n'
+          }, { status: 200 });
+        }
+        
+        // If we get here, n8n webhook failed - fall back to direct import
+        console.log('n8n webhook failed, falling back to direct import');
+      } catch (webhookError) {
+        // Webhook error - fall back to direct import
+        console.error('Error sending to n8n webhook:', webhookError);
+      }
+    }
+    
+    // If we get here, either n8n webhook failed or is not configured
+    // Fall back to direct database import
+    
+    const lines = csvContent.split('\n');
+    if (lines.length < 2) {
+      return NextResponse.json({ error: 'CSV file appears to be empty or invalid' }, { status: 400 });
+    }
     
     // Detect delimiter (tab or comma)
     const firstLine = lines[0];
     const delimiter = firstLine.includes('\t') ? '\t' : ',';
     
     // Parse the header row to get column names
-    const headers = firstLine.split(delimiter).map(header => header.trim());
+    const headers = firstLine.split(delimiter).map(header => header.trim().toLowerCase());
     
-    // Check for required columns - case insensitive check for 'name' or 'Name'
-    if (!headers.some(h => h.toLowerCase() === 'name')) {
+    // Check for required columns - case insensitive check for 'name'
+    if (!headers.includes('name')) {
       return NextResponse.json(
-        { error: 'CSV must include a "Name" column' },
+        { error: 'CSV must include a "name" column' },
         { status: 400 }
       );
     }
 
     // Map CSV columns to database fields - case insensitive
-    // Only include fields that exist in the database schema
     const columnMap: Record<string, string> = {
       'name': 'name',
       'email': 'email',
       'phone': 'phone',
-      'property address': 'property_address'
-      // Temporarily remove fields not in the database schema
-      // 'address': 'address',
-      // 'company': 'company',
-      // 'source': 'source'
+      'address': 'address',
+      'property address': 'property_address',
+      'company': 'company',
+      'source': 'source'
     };
 
     // Parse the CSV data rows
@@ -75,19 +117,16 @@ export async function POST(request: NextRequest) {
       
       // Create a contact object
       const contact: Record<string, string | null> = {
-        user_id: user.id
+        user_id: userId
       };
       
       // Map CSV values to contact fields
       headers.forEach((header, index) => {
-        const dbField = columnMap[header.toLowerCase()];
+        const dbField = columnMap[header];
         if (dbField && values[index]) {
           contact[dbField] = values[index];
         }
       });
-      
-      // Note: Special handling for address field removed temporarily
-      // Will be restored after database schema update
       
       // Ensure name is present
       if (contact.name) {
@@ -111,7 +150,8 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         message: `Successfully imported ${contacts.length} contacts`,
-        count: contacts.length
+        count: contacts.length,
+        source: 'direct'
       });
     } else {
       return NextResponse.json(
