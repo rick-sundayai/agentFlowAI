@@ -103,6 +103,7 @@ export async function POST(request: Request) {
       'phone': 'phone',
       'address': 'address',
       'property address': 'property_address',
+      'property_address': 'property_address',
       'company': 'company',
       'source': 'source'
     };
