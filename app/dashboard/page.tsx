@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import SignOutButton from './signout-button'; // Client Component for sign out
 import AddContactButton from './add-contact-button'; // Client Component for adding contacts
 import CsvUploadForm from '../components/csvUploadForm'; // CSV import functionality
+import CoPilotChat from '../components/CoPilotChat'; // <-- Import the CoPilotChat component
 
 // Define the type for contact data
 interface Contact {
@@ -63,14 +64,10 @@ export default async function Dashboard() {
             </p>
           </div>
           
-          {/* AI Command Center Area */}
+          {/* AI Command Center Area - Now includes the actual chat component */}
           <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-8 border border-indigo-100 dark:border-indigo-900">
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-              <span className="text-indigo-600 dark:text-indigo-400 mr-2">AI</span> Co-Pilot
-            </h3>
-            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 min-h-[200px] flex items-center justify-center text-gray-500 dark:text-gray-400 italic">
-              <p>Imagine a chat window here where you can type commands like "Show my contacts," "Add John Doe," etc.</p>
-            </div>
+             {/* Replace the old h3 and inner div with the chat component */}
+             <CoPilotChat /> {/* <-- Render the CoPilotChat component here */}
           </div>
           
           {/* Contacts Section */}
