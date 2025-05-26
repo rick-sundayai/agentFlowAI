@@ -8,12 +8,13 @@ interface ChatMessage {
   id: number;
   text: string;
   sender: 'user' | 'ai'; // 'user' for the agent, 'ai' for the Co-Pilot
-  // Add properties for structured data display
-  dataType?: 'contacts_list';
-  data?: any; // Data payload for structured types (e.g., contacts array)
+  // Properties for structured data display received from backend
+  dataType?: 'contacts_list'; // Specific type for contacts
+  data?: any; // Data payload for structured types (e.g., contacts array) - can be more specific later
 }
 
-// Define a type for contact data received in the response
+// Define a type for contact data received in the response payload
+// This should match the shape of contact objects returned by your backend API
 interface ContactData {
     id: string;
     name: string;
@@ -25,74 +26,97 @@ interface ContactData {
 
 
 export default function CoPilotChat() {
+  // State to hold the list of messages
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // State for the current input text
   const [inputText, setInputText] = useState('');
+  // State to indicate if the AI is processing
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Ref for the chat messages container to auto-scroll
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
    // Add an initial greeting message when the component mounts
   useEffect(() => {
-      // Only add the initial message once
+      // Only add the initial message once when the component first mounts
       if (messages.length === 0) {
          setMessages([{
-             id: Date.now(),
+             id: Date.now(), // Use a reliable unique ID
              text: "Hello! I'm your AgentFlow AI Co-Pilot. How can I assist you today?",
              sender: 'ai'
          }]);
       }
-  }, []); // Empty dependency array
+  }, [messages]); // Dependency array includes messages to ensure it only runs when messages array is initially empty
 
 
+  // Effect to scroll to the bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages]); // Dependency array: re-run when 'messages' state changes
 
+  // Function to handle sending a message (when the user hits Enter or clicks Send)
   const handleSendMessage = async () => {
-    if (inputText.trim() === '') return;
+    if (inputText.trim() === '') return; // Don't send empty messages
 
-    const userMessageText = inputText; // Store before clearing
+    const userMessageText = inputText; // Store the command before clearing input
     const newUserMessage: ChatMessage = {
-      id: Date.now(),
+      id: Date.now(), // Simple unique ID for now
       text: userMessageText,
       sender: 'user',
     };
 
+    // Add the user's message to the chat immediately
     setMessages((prevMessages) => [...prevMessages, newUserMessage]);
-    setInputText('');
-    setIsProcessing(true);
+    setInputText(''); // Clear the input field
 
-    // --- Call your new backend API route ---
+    setIsProcessing(true); // Indicate processing starts
+
+    // --- Call your backend API route ---
     try {
         const response = await fetch('/api/copilot-command', { // Your new API route
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: userMessageText }), // Send the user's text command
+            // We get the user on the server, so just sending the command is enough:
+            body: JSON.stringify({ command: userMessageText }),
         });
 
         if (!response.ok) {
             // Attempt to read error message from backend response
+            // Assuming backend returns JSON even on errors
             const errorBody = await response.json();
-            const errorMessageText = errorBody.error || 'Failed to process command.';
-            throw new Error(`Backend error: ${response.status} - ${errorMessageText}`);
+            const errorMessageText = errorBody.error || `HTTP error! status: ${response.status}`;
+            // Throw an error so the catch block handles it
+            throw new Error(errorMessageText);
         }
 
-        const result = await response.json(); // Assuming backend sends back { response: { type: '...', text: '...', data: ... } }
+        // Assuming the backend always returns JSON with a 'response' field
+        const result = await response.json();
+        // Expected backend response structure: { response: { text: '...', type?: '...', data?: ... } }
         const aiResponseContent = result.response;
 
-        // Determine the type of message to display based on the backend response
+        // Validate the expected response structure
+        if (!aiResponseContent || typeof aiResponseContent.text === 'undefined') {
+             console.error("Unexpected backend response structure:", result);
+             throw new Error("Invalid response format from Co-Pilot backend.");
+        }
+
+
+        // Create the AI message object, including potential structured data
         const newAiMessage: ChatMessage = {
-             id: Date.now() + 1,
-             text: aiResponseContent.text || '', // Always include text, even if there's structured data
+             id: Date.now() + 1, // Ensure unique ID
+             text: aiResponseContent.text, // Always include text for the bubble
              sender: 'ai',
-             dataType: aiResponseContent.type, // Store the data type
-             data: aiResponseContent.data, // Store any associated data (like contacts array)
+             // Include dataType and data only if provided by the backend
+             dataType: aiResponseContent.type,
+             data: aiResponseContent.data,
         };
 
+        // Add the AI's response (with or without data) to the chat
         setMessages((prevMessages) => [...prevMessages, newAiMessage]);
 
     } catch (error: any) {
-        console.error("Error sending message to AI backend:", error);
+        console.error("Error communicating with AI backend:", error);
+        // Display an error message in the chat bubble if the fetch fails or response is bad
         const errorMessage: ChatMessage = {
              id: Date.now() + 1,
              text: `Sorry, I encountered an error processing your request: ${error.message}`,
@@ -100,13 +124,14 @@ export default function CoPilotChat() {
         };
         setMessages((prevMessages) => [...prevMessages, errorMessage]);
     } finally {
-        setIsProcessing(false);
+        setIsProcessing(false); // Processing ends
     }
   };
 
+  // Handle key press (like 'Enter')
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' && !isProcessing) { // Prevent sending multiple times while processing
-      event.preventDefault();
+      event.preventDefault(); // Prevent default form submission or new line
       handleSendMessage();
     }
   };
@@ -119,6 +144,11 @@ export default function CoPilotChat() {
 
       {/* Chat Messages Display Area */}
       <div className="flex-grow overflow-y-auto space-y-4 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm"> {/* Added background */}
+        {messages.length === 1 && messages[0].sender === 'ai' && ( // Display initial prompt if no user messages yet
+           <p className="text-gray-500 italic text-center">
+            Type a command to get started, e.g., "Show my contacts."
+          </p>
+        )}
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -127,26 +157,28 @@ export default function CoPilotChat() {
             <div
               className={`max-w-[80%] rounded-lg p-3 ${
                 msg.sender === 'user'
-                  ? 'bg-indigo-500 text-white'
-                  : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
+                  ? 'bg-indigo-500 text-white' // User bubble style
+                  : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200' // AI bubble style
               }`}
             >
-              {/* Render different content based on message type */}
-              {msg.text} {/* Display the text part */}
+              {/* Display the text part of the message */}
+              <p>{msg.text}</p>
 
-              {/* Render structured data below the text */}
-              {msg.dataType === 'contacts_list' && msg.data && (
+              {/* Render structured data below the text if available */}
+              {/* Check for dataType and ensure data is an array before mapping for contacts_list */}
+              {msg.dataType === 'contacts_list' && Array.isArray(msg.data) && (
                  <div className="mt-2 border-t border-gray-300 dark:border-gray-500 pt-2">
                      {msg.data.length > 0 ? (
                          <ul className="text-sm space-y-1">
-                             {msg.data.map((contact: ContactData) => (
-                                 <li key={contact.id} className="truncate"> {/* Use ContactData type */}
+                             {msg.data.map((contact: ContactData) => ( // Use ContactData type for mapping
+                                 // Ensure contact has an id for the key
+                                 <li key={contact.id || contact.name} className="truncate"> {/* Fallback key if id missing */}
                                      <strong>{contact.name}:</strong> {contact.email || contact.phone || 'No contact info'}
                                  </li>
                              ))}
                          </ul>
                      ) : (
-                         <p className="italic">No contacts found.</p>
+                         <p className="italic">No contacts found matching criteria.</p> // More specific message
                      )}
                  </div>
               )}
@@ -155,7 +187,7 @@ export default function CoPilotChat() {
             </div>
           </div>
         ))}
-        <div ref={messagesEndRef} />
+        <div ref={messagesEndRef} /> {/* Empty div to scroll to */}
       </div>
 
       {/* Message Input Area */}
