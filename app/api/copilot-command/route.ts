@@ -5,6 +5,38 @@ import { NextResponse } from 'next/server';
 // Import Vertex AI library components
 import { VertexAI } from '@google-cloud/vertexai';
 
+// Utility function for structured logging
+function logWithTimestamp(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void {
+  const timestamp = new Date().toISOString();
+  console[level](`[${timestamp}] ${message}`, data ? data : '');
+}
+
+// Utility function for retrying API calls
+async function retryOperation<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 2,
+  delay: number = 1000
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      logWithTimestamp('warn', `Operation failed (attempt ${attempt + 1}/${maxRetries + 1})`, error);
+      
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        // Exponential backoff
+        delay *= 2;
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
 // Define interfaces for type safety
 interface ChatMessage {
   id: number;
@@ -50,6 +82,7 @@ const generativeModel = vertex_ai.getGenerativeModel({
 
 
 // --- System Instruction / Initial Prompt for Gemini ---
+// --- System Instruction / Initial Prompt for Gemini ---
 const systemInstruction = `
 You are AgentFlow AI, a helpful and intelligent co-pilot integrated directly into a real estate agent's application.
 
@@ -57,13 +90,44 @@ IMPORTANT: You are NOT a general AI assistant. You are a specialized component t
 
 You have direct API access to the agent's contact database through this application. When the agent asks about their contacts, you will query the database and return results.
 
-You MUST respond in a structured JSON format enclosed in triple backticks (\`\`\`). Do NOT include any other text outside the triple backticks.
+You MUST respond with ONLY a JSON object inside triple backticks. The JSON MUST include 'action', 'parameters', and 'confidence' fields.
 
-[Rest of your existing instruction with action definitions]
+Here are the possible actions and the exact JSON format you MUST use:
 
-ALWAYS RESPOND WITH JSON ONLY. DO NOT ADD ANY EXPLANATORY TEXT.
-If the command is simple like "Hello" or "How are you?", respond with the "unknown" action and paraphrase the query.
+1. **Show Contacts:** When the agent wants to view contacts.
+   Example commands: "Show my contacts", "List contacts named Smith", "Find contacts in California"
+   
+   RESPOND EXACTLY LIKE THIS:
+   \`\`\`
+   {
+     "action": "show_contacts",
+     "parameters": {
+       "name": "Smith",  // Optional: name filter (omit if not in query)
+       "location": "California"  // Optional: location filter (omit if not in query)
+     },
+     "confidence": 0.9
+   }
+   \`\`\`
+
+2. **Unknown Command:** For commands you don't understand or general chat.
+   Example commands: "Hello", "How are you?", "What's the weather?"
+   
+   RESPOND EXACTLY LIKE THIS:
+   \`\`\`
+   {
+     "action": "unknown",
+     "parameters": {
+       "query": "Hello there"  // Rephrase of the original query
+     },
+     "confidence": 1.0
+   }
+   \`\`\`
+
+NEVER respond with explanatory text outside the JSON. NEVER say you can't access the database - you are integrated with the application that has database access.
+
+ALWAYS use the exact JSON structure shown above with all required fields.
 `;
+
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -89,23 +153,26 @@ export async function POST(request: Request) {
         // history: [],
     });
 
-    // Send the system instruction and user command
-    const result = await chat.sendMessage([
-        {text: systemInstruction},
-        {text: userCommand}
-    ]);
+    // Send the system instruction and user command with retry logic
+    const result = await retryOperation(async () => {
+        logWithTimestamp('info', 'Sending command to Gemini API', { command: userCommand });
+        return await chat.sendMessage([
+            {text: systemInstruction},
+            {text: userCommand}
+        ]);
+    });
 
     // --- Extract text from the Gemini response structure ---
     // The text is in candidates[0].content.parts[0].text
     const responseText = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text;
-    console.log("Gemini Raw Response:", responseText);
+    logWithTimestamp('info', 'Gemini Raw Response:', responseText);
 
     // --- Process Gemini's Response ---
     // Safely check if responseText is a string before using .match()
     if (typeof responseText !== 'string' || responseText.trim() === '') {
-        console.error("Gemini returned no text response or an empty string.");
+        logWithTimestamp('error', "Gemini returned no text response or an empty string.");
         // Log the full result object to inspect what came back
-        console.error("Full Gemini Result Object:", JSON.stringify(result, null, 2));
+        logWithTimestamp('error', "Full Gemini Result Object:", JSON.stringify(result, null, 2));
 
         // Return an error message to the frontend
         return NextResponse.json({
@@ -125,14 +192,14 @@ export async function POST(request: Request) {
     // If that doesn't work, try just triple backticks ```...```
     if (!jsonMatch) {
         jsonMatch = responseText.match(/```\s?([\s\S]*?)\s?```/);
-        console.log('Found JSON with alternative pattern');
+        logWithTimestamp('info', 'Found JSON with alternative pattern');
     }
     
     // If still no match, try to see if the entire response is JSON
     if (!jsonMatch && responseText.trim().startsWith('{') && responseText.trim().endsWith('}')) {
         // Create a match array with the entire response as the captured group
         jsonMatch = [responseText.trim(), responseText.trim()];
-        console.log('Treating entire response as JSON');
+        logWithTimestamp('info', 'Treating entire response as JSON');
     }
     
     // Default to 'unknown' action if no JSON is found or can't be parsed
@@ -161,8 +228,8 @@ export async function POST(request: Request) {
           }
           
           // Log what we received vs. what we're using
-          console.log('Parsed JSON from Gemini:', parsedJson);
-          console.log('Normalized aiAction:', aiAction);
+          logWithTimestamp('info', 'Parsed JSON from Gemini:', parsedJson);
+          logWithTimestamp('info', 'Normalized aiAction:', aiAction);
         }
 
         // --- Perform Action based on Parsed JSON (Refined) ---
@@ -173,7 +240,7 @@ export async function POST(request: Request) {
         if (aiAction.action === 'show_contacts') {
           // Type guard to ensure we're working with ShowContactsParameters
           const params = aiAction.parameters as ShowContactsParameters;
-          console.log("Gemini identified action: show_contacts with params:", params);
+          logWithTimestamp('info', "Gemini identified action: show_contacts with params:", params);
 
           // Build Supabase query based on parameters and user ID (RLS handles user ID implicitly)
           let query = supabase
@@ -196,7 +263,7 @@ export async function POST(request: Request) {
           const { data: contacts, error: contactError } = await query;
 
           if (contactError) {
-              console.error("Error fetching contacts based on command:", contactError);
+              logWithTimestamp('error', "Error fetching contacts based on command:", contactError);
               aiResponseForChat = "Sorry, I couldn't fetch your contacts.";
               // No data or specific error type needed for the chat bubble for a fetch error
               aiResponseDataType = undefined; // Ensure no data is sent if fetch fails
@@ -241,11 +308,11 @@ export async function POST(request: Request) {
         }, { status: 200 }); // Return 200 even if action resulted in no contacts, it's a successful AI interaction
 
       } catch (parseError: unknown) {
-        console.error("Error parsing Gemini JSON response:", parseError);
+        logWithTimestamp('error', "Error parsing Gemini JSON response:", parseError);
         
         // Log the specific error details
         if (parseError instanceof Error) {
-          console.error("Parse error details:", parseError.message);
+          logWithTimestamp('error', "Parse error details:", parseError.message);
         }
         
         // Fallback response if JSON parsing fails but raw text was received
@@ -259,7 +326,7 @@ export async function POST(request: Request) {
       }
     } else {
         // If we received text but no JSON block, treat it as a direct response
-        console.log("Gemini response did not contain expected JSON format. Using text directly:", responseText);
+        logWithTimestamp('warn', "Gemini response did not contain expected JSON format. Using text directly:", responseText);
         
         // Use the text directly as a response for a better user experience
         return NextResponse.json({
@@ -273,7 +340,7 @@ export async function POST(request: Request) {
 
 
   } catch (error: unknown) {
-    console.error("API Route Error:", error);
+    logWithTimestamp('error', "API Route Error:", error);
     // This catch block handles errors *before* or *during* the Gemini call itself
     
     // Safely extract error message with type checking
