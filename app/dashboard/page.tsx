@@ -1,8 +1,8 @@
 // app/dashboard/page.tsx
 import { createClient } from '@/utils/supabase/server'; // Use the server client
 import { redirect } from 'next/navigation';
-import SignOutButton from './signout-button'; // Client Component for sign out
-import AddContactButton from './add-contact-button'; // Client Component for adding contacts
+import SignOutButton from '@/app/dashboard/signout-button'; // Client Component for sign out
+import AddContactButton from '@/app/dashboard/add-contact-button'; // Client Component for adding contacts
 import CsvUploadForm from '../components/csvUploadForm'; // CSV import functionality
 import CoPilotChat from '../components/CoPilotChat'; // <-- Import the CoPilotChat component
 
@@ -67,7 +67,7 @@ export default async function Dashboard() {
           {/* AI Command Center Area - Now includes the actual chat component */}
           <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-8 border border-indigo-100 dark:border-indigo-900">
              {/* Replace the old h3 and inner div with the chat component */}
-             <CoPilotChat /> {/* <-- Render the CoPilotChat component here */}
+             <CoPilotChat userId={user.id} /> {/* <-- Render the CoPilotChat component with userId */}
           </div>
           
           {/* Contacts Section */}

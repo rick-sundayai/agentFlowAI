@@ -9,9 +9,13 @@ import ChatInput from './ChatUI/ChatInput';
 
 
 // Wrapper component that provides the ChatContext
-export default function CoPilotChat() {
+interface CoPilotChatProps {
+  userId: string;
+}
+
+export default function CoPilotChat({ userId }: CoPilotChatProps) {
   return (
-    <ChatProvider>
+    <ChatProvider userId={userId}>
       <ChatInterface />
     </ChatProvider>
   );

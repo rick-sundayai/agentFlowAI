@@ -31,6 +31,7 @@ interface ChatContextType {
   retryMessage: (messageId: number) => Promise<void>;
   clearConversation: () => void;
   lastError: string | null;
+  userId: string;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -45,9 +46,10 @@ export function useChatContext() {
 
 interface ChatProviderProps {
   children: ReactNode;
+  userId: string;
 }
 
-export function ChatProvider({ children }: ChatProviderProps) {
+export function ChatProvider({ children, userId }: ChatProviderProps) {
   // State for chat messages
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Processing state (when sending a message)
@@ -120,13 +122,11 @@ export function ChatProvider({ children }: ChatProviderProps) {
     setLastError(null);
 
     try {
-      // Simulate network delay for typing indicator (min 1 second)
-      await new Promise(resolve => setTimeout(resolve, 1000));
 
       const response = await fetch('/api/copilot-command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: text }),
+        body: JSON.stringify({ command: text, userId }),
       });
 
       if (!response.ok) {
@@ -204,6 +204,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     retryMessage,
     clearConversation,
     lastError,
+    userId,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
