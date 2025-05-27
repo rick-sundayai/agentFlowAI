@@ -40,9 +40,9 @@ export async function POST(request: Request) {
     // --- Trigger n8n Co-Pilot Command Workflow ---
 
     const N8N_COPILOT_WEBHOOK_URL = process.env.N8N_COPILOT_WEBHOOK_URL; // Your n8n webhook URL
-    const N8N_COPILOT_WEBHOOK_API_KEY = process.env.N8N_COPILOT_WEBHOOK_API_KEY; // Your n8n webhook API key
+    const N8N_COPILOT_API_KEY = process.env.N8N_COPILOT_API_KEY; // Your n8n webhook API key
 
-    if (!N8N_COPILOT_WEBHOOK_URL || !N8N_COPILOT_WEBHOOK_API_KEY) {
+    if (!N8N_COPILOT_WEBHOOK_URL || !N8N_COPILOT_API_KEY) {
       logWithTimestamp('error', 'Missing N8N Co-Pilot webhook environment variables', { userId });
       return NextResponse.json({
         response: {
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json', // Sending JSON data to n8n webhook
-          'X-Api-Key': N8N_COPILOT_WEBHOOK_API_KEY, // Using Header Auth with API Key
+          'X-Api-Key': N8N_COPILOT_API_KEY, // Using Header Auth with API Key
         },
         body: JSON.stringify(n8nPayload),
         // You might want to add a timeout here using AbortController if n8n takes too long
