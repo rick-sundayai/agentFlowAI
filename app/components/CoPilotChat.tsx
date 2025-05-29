@@ -2,7 +2,7 @@
 "use client";
 
 import { useRef, useEffect } from 'react';
-import { ChatProvider, useChatContext } from '@/app/context/ChatContext';
+import { ChatProvider, useChatContext, ChatMessage } from '@/app/context/ChatContext';
 import TypingIndicator from './ChatUI/TypingIndicator';
 import MessageBubble from './ChatUI/MessageBubble';
 import ChatInput from './ChatUI/ChatInput';
@@ -11,11 +11,12 @@ import ChatInput from './ChatUI/ChatInput';
 // Wrapper component that provides the ChatContext
 interface CoPilotChatProps {
   userId: string;
+  initialMessages?: ChatMessage[];
 }
 
-export default function CoPilotChat({ userId }: CoPilotChatProps) {
+export default function CoPilotChat({ userId, initialMessages = [] }: CoPilotChatProps) {
   return (
-    <ChatProvider userId={userId}>
+    <ChatProvider userId={userId} initialMessages={initialMessages}>
       <ChatInterface />
     </ChatProvider>
   );

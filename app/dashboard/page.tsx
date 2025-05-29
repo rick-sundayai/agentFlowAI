@@ -6,7 +6,10 @@ import AddContactButton from '@/app/dashboard/add-contact-button'; // Client Com
 import CsvUploadForm from '../components/csvUploadForm'; // CSV import functionality
 import CoPilotChat from '../components/CoPilotChat'; // <-- Import the CoPilotChat component
 
-// Define the type for contact data
+// Assuming ChatMessage type is defined and exported from your ChatContext file
+import { ChatMessage } from '@/app/context/ChatContext';
+
+// Define the type for contact data (already exists)
 interface Contact {
   id: string;
   user_id: string;
@@ -17,9 +20,13 @@ interface Contact {
   // Add other fields as needed
 }
 
+// We don't need a separate interface for DB chat messages anymore
+// TypeScript will infer the types from the Supabase query result
+
+
 export default async function Dashboard() {
   // Create a Supabase client instance on the server side
-  const supabase = await createClient();
+  const supabase = await createClient(); // Use the corrected createClient
 
   // Fetch the user session. Use getUser() for a secure check on the server.
   const { data: { user } } = await supabase.auth.getUser();
@@ -29,8 +36,35 @@ export default async function Dashboard() {
     redirect('/login');
   }
 
-  // Fetch contacts for the logged-in user
-  // Note: This assumes you have a 'contacts' table with RLS configured
+  // --- New: Fetch Chat History for the User ---
+  const { data: chatMessagesData, error: messagesError } = await supabase
+    .from('chat_messages')
+    .select('id, user_id, sender, text, type, data, created_at') // Include user_id in the selection
+    .eq('user_id', user.id) // Filter by the logged-in user's ID (RLS also helps)
+    .order('created_at', { ascending: true }); // Order by time to get correct history sequence
+
+  if (messagesError) {
+    console.error('Error fetching chat messages:', messagesError);
+    // Decide how to handle error (e.g., pass null messages, show error state)
+    // For MVP, just log and pass an empty array
+  }
+
+  // Map DB messages to frontend ChatMessage interface format
+  const initialMessages: ChatMessage[] = chatMessagesData ? chatMessagesData.map((msg) => ({
+      id: msg.id, // Use DB ID
+      sender: msg.sender,
+      text: msg.text || '', // Ensure text is string for frontend interface
+      type: msg.type || 'text', // Default type if not provided in DB
+      data: msg.data,
+      timestamp: new Date(msg.created_at).getTime(), // Convert DB timestamp string to number (Unix milliseconds)
+      // Add other frontend-specific fields if needed (isProcessing, isError, isRetryable)
+      // You might set initial error/retryable state based on msg.type if needed
+      isError: msg.type === 'error', // Example: map DB type to frontend state
+      isRetryable: msg.type === 'error' // Example mapping
+  })) : []; // Pass an empty array if no messages or error
+
+
+  // --- Existing: Fetch Contacts (remains the same) ---
   const { data: contacts, error: contactsError } = await supabase
     .from('contacts')
     .select('id, user_id, name, phone, email, property_address')
@@ -51,7 +85,7 @@ export default async function Dashboard() {
           <SignOutButton />
         </div>
       </header>
-      
+
       <main className="flex-grow px-4 sm:px-6 lg:px-8 py-8">
         <div className="max-w-7xl mx-auto">
           {/* Welcome section */}
@@ -63,26 +97,29 @@ export default async function Dashboard() {
               This is your Command Center. Your AI Co-Pilot is ready to assist.
             </p>
           </div>
-          
+
           {/* AI Command Center Area - Now includes the actual chat component */}
           <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-8 border border-indigo-100 dark:border-indigo-900">
-             {/* Replace the old h3 and inner div with the chat component */}
-             <CoPilotChat userId={user.id} /> {/* <-- Render the CoPilotChat component with userId */}
+             {/* Pass the fetched messages to the CoPilotChat component */}
+             <CoPilotChat
+                 userId={user.id}
+                 initialMessages={initialMessages} // Pass the mapped initial messages
+             />
           </div>
-          
+
           {/* Contacts Section */}
           <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 border border-indigo-100 dark:border-indigo-900">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Your Contacts</h3>
               <AddContactButton />
             </div>
-            
+
             {contactsError && (
               <div className="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 p-4 rounded-md mb-4">
                 Error loading contacts. Please try again.
               </div>
             )}
-            
+
             {/* Display the contacts */}
             {contacts && contacts.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -138,15 +175,15 @@ export default async function Dashboard() {
               </div>
             )}
           </div>
-          
+
           {/* CSV Import Section */}
           <CsvUploadForm />
         </div>
       </main>
-      
+
       <footer className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-gray-500 dark:text-gray-400">
-          &copy; {new Date().getFullYear()} AgentFlow AI. All rights reserved.
+          © {new Date().getFullYear()} AgentFlow AI. All rights reserved.
         </div>
       </footer>
     </div>
