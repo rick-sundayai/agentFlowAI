@@ -69,9 +69,9 @@ export default function MessageBubble({ message, onRetry }: MessageBubbleProps) 
               
               return contacts.length > 0 ? (
                 <ul className="text-sm space-y-1">
-                  {contacts.map((contact: ContactData) => (
-                    // Ensure ContactItem can handle potentially missing 'id' for MVP
-                    <ContactItem key={contact.id || contact.name || Math.random()} contact={contact} />
+                  {contacts.map((contact: ContactData, index: number) => (
+                    // Use a stable key strategy: id, name, or index as a last resort
+                    <ContactItem key={contact.id || contact.name || `contact-${index}`} contact={contact} />
                   ))}
                 </ul>
               ) : (

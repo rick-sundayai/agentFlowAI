@@ -1,10 +1,12 @@
+// add contact modal.tsx
 "use client";
 
 import { createClient } from '@/utils/supabase/client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { z } from 'zod';
 
 // Define the contact schema using Zod for validation
+// NOTE: The file upload is NOT part of this schema as it's handled separately
 const contactSchema = z.object({
   name: z.string().min(1, { message: "Name is required" }),
   email: z.string().email({ message: "Invalid email address" }).optional().nullable(),
@@ -17,7 +19,8 @@ type ContactFormData = z.infer<typeof contactSchema>;
 interface AddContactModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onContactAdded: () => void;
+  // Modify onContactAdded to potentially accept the new contact data if needed
+  onContactAdded: (newContact?: ContactFormData) => void;
 }
 
 export default function AddContactModal({ isOpen, onClose, onContactAdded }: AddContactModalProps) {
@@ -27,15 +30,17 @@ export default function AddContactModal({ isOpen, onClose, onContactAdded }: Add
     phone: '',
     property_address: '',
   });
+  // --- New: State for the selected file ---
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Handle form input changes
+  // Handle form input changes for text/textarea fields
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    
+
     // Clear error for this field when user types
     if (errors[name]) {
       setErrors(prev => {
@@ -46,17 +51,27 @@ export default function AddContactModal({ isOpen, onClose, onContactAdded }: Add
     }
   };
 
+  // --- New: Handle file input changes ---
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files ? e.target.files[0] : null;
+      setSelectedFile(file);
+      // Note: File is stored in separate state, not part of formData object for Zod validation
+  };
+
+
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitError(null);
     setErrors({});
+    setSelectedFile(null); // Clear selected file on submit attempt
+
 
     try {
-      // Validate the form data
+      // Validate the form data (excluding the file)
       const result = contactSchema.safeParse(formData);
-      
+
       if (!result.success) {
         // Handle validation errors
         const formattedErrors: Record<string, string> = {};
@@ -67,75 +82,95 @@ export default function AddContactModal({ isOpen, onClose, onContactAdded }: Add
         });
         setErrors(formattedErrors);
         setIsSubmitting(false);
+        // Do NOT return here if you want to allow submitting with only partial data + file later
+        // For now, we return as name is required by schema.
         return;
       }
 
       // Submit to Supabase
       const supabase = createClient();
-      
+
       // First get the current user to set the user_id field
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user) {
         setSubmitError('You must be logged in to add contacts');
         setIsSubmitting(false);
         return;
       }
-      
-      const { error } = await supabase
-        .from('contacts')
-        .insert([{
+
+      // --- Prepare data for Supabase Insert (excluding the file for now) ---
+      const contactDataForInsert = {
           ...result.data,
-          // Set the user_id to the current user's ID
           user_id: user.id,
           // Convert empty strings to null for optional fields
           email: result.data.email || null,
           phone: result.data.phone || null,
           property_address: result.data.property_address || null,
-        }]);
+      };
+
+      // --- TODO: Add file handling logic here later ---
+      // If selectedFile exists, you would upload it, potentially link it to the contact, etc.
+      console.log("Selected file (logic not implemented yet):", selectedFile);
+      // For now, we ignore the file for the database insert.
+      // if (selectedFile) {
+      //   // Logic to upload file to storage, process it, etc.
+      //   // Example: await supabase.storage.from('contact-files').upload(...)
+      // }
+
+
+      // --- Insert the contact data into Supabase (excluding the file) ---
+      const { data: newContact, error } = await supabase
+        .from('contacts')
+        .insert([contactDataForInsert])
+        .select('*') // Select the inserted row to get the generated ID etc.
+        .single(); // Expecting a single record back
 
       if (error) {
         console.error('Error adding contact:', error);
         // Provide a more detailed error message
         let errorMessage = 'Failed to add contact';
-        
-        if (error.message) {
-          errorMessage += `: ${error.message}`;
-        }
-        
-        if (error.details) {
-          errorMessage += ` (${error.details})`;
-        }
-        
-        if (error.hint) {
-          errorMessage += `. Hint: ${error.hint}`;
-        }
-        
-        if (error.code) {
-          errorMessage += `. Code: ${error.code}`;
-        }
-        
+        if (error.message) errorMessage += `: ${error.message}`;
+        if (error.details) errorMessage += ` (${error.details})`;
+        if (error.hint) errorMessage += `. Hint: ${error.hint}`;
+        if (error.code) errorMessage += `. Code: ${error.code}`;
         setSubmitError(errorMessage);
         setIsSubmitting(false);
         return;
       }
 
-      // Success - reset form and close modal
+      // Success - reset form, clear file state, notify parent, and close modal
       setFormData({
         name: '',
         email: '',
         phone: '',
         property_address: '',
       });
+      setSelectedFile(null); // Clear file state
+      setErrors({}); // Clear validation errors
+      setSubmitError(null); // Clear submission error
       setIsSubmitting(false);
-      onContactAdded();
+      // Notify parent with the newly added contact data
+      onContactAdded(newContact as ContactFormData); // Pass new contact data if needed by parent
       onClose();
-    } catch (error) {
+    } catch (error: any) { // Catch unexpected errors
       console.error('Unexpected error:', error);
       setSubmitError('An unexpected error occurred. Please try again.');
       setIsSubmitting(false);
     }
   };
+
+  // Reset form state when modal is closed
+  useEffect(() => {
+      if (!isOpen) {
+          setFormData({ name: '', email: '', phone: '', property_address: '' });
+          setSelectedFile(null); // Clear file state on close
+          setErrors({});
+          setSubmitError(null);
+          setIsSubmitting(false);
+      }
+  }, [isOpen]);
+
 
   if (!isOpen) return null;
 
@@ -233,6 +268,28 @@ export default function AddContactModal({ isOpen, onClose, onContactAdded }: Add
                 />
                 {errors.property_address && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.property_address}</p>}
               </div>
+
+              {/* --- New: File Upload Field --- */}
+              <div>
+                  <label htmlFor="contact-file" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Upload File
+                  </label>
+                  <input
+                      type="file"
+                      id="contact-file"
+                      name="contactFile" // Give it a name for potential future FormData handling
+                      onChange={handleFileChange}
+                      className="block w-full text-sm text-gray-500
+                          file:mr-4 file:py-2 file:px-4
+                          file:rounded-full file:border-0
+                          file:text-sm file:font-semibold
+                          file:bg-indigo-50 file:text-indigo-700
+                          hover:file:bg-indigo-100 dark:file:bg-indigo-900 dark:file:text-indigo-300 dark:hover:file:bg-indigo-800"
+                  />
+                  {/* You might add UI here later to show selected file name or preview */}
+              </div>
+              {/* --- End New File Upload Field --- */}
+
             </div>
 
             <div className="mt-6 flex justify-end space-x-3">

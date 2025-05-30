@@ -3,7 +3,8 @@
 
 import { useRef, useEffect } from 'react';
 // Import useChatContext and types needed for messages
-import { useChatContext, ChatMessage } from '@/app/context/ChatContext'; // Ensure ChatMessage is imported
+import { useChatContext, ChatMessage } from '@/app/context/ChatContext';
+
 import TypingIndicator from './ChatUI/TypingIndicator';
 import MessageBubble from './ChatUI/MessageBubble';
 import ChatInput from './ChatUI/ChatInput';
@@ -55,7 +56,7 @@ export default function CoPilotChat() { // Removed props
 
       {/* Chat Messages Display Area */}
       <div
-        className="flex-grow overflow-y-auto space-y-4 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm h-[300px]" // Adjusted height here
+        className="flex-grow overflow-y-auto space-y-4 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm h-[300px]"
         role="log"
         aria-live="polite"
         aria-atomic="false"
